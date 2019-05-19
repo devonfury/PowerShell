@@ -1,0 +1,105 @@
+pipeline {
+    agent {label "win"}
+    /*
+    parameters {
+        string(name: 'ServerName', defaultValue: '', description: '')
+    }
+    */
+    environment {
+        DEPLOY_CREDS = credentials("${params.credential}")       
+        UTC_FILENAME = powershell(returnStdout: true, script: 'write-output (Get-Date).ToFileTimeUtc()')
+        PIPELINEOUTPUT = "${params.pipelineoutput}"
+        SERVERNAME = "${params.servername}"
+        TESTNAME = "${params.testname}"
+        WAIT = "${params.wait}"              
+    }
+    stages {               
+        stage('Environment/Parent Parameters') {
+            steps {                                              
+                /*
+                echo "Output Parameters:"
+                echo params.servername
+                echo params.source
+                echo params.dest
+                */
+                powershell '''                   
+                    Get-ChildItem -Path env:
+                '''
+            }
+        }
+        stage('Wait for SUT') {
+            steps {
+                powershell '''
+                    $params = @{}
+                    if($env:SERVERNAME -eq 'null')
+                    {
+                        $params.Add('PipelineOutput',$env:PIPELINEOUTPUT)   
+                    }
+                    else
+                    {
+                        $params.Add('ServerName',$env:SERVERNAME)
+                    }                   
+ 
+                    if($env:WAIT -eq 'null')
+                    {
+                        $params.Add('MinutesToWait',1)
+                    }
+                    else
+                    {
+                        $wait = [int] $env:WAIT
+                        $params.Add('MinutesToWait',$env:WAIT)
+                    }
+ 
+                    $result = & .\\scripts\\Wait.ps1 @params
+ 
+                    if($result -ne 0)
+                    {
+                        write-output "System did not respond to ping requests."                       
+                    }
+ 
+                    exit $result
+                '''
+            }
+        }                                    
+        stage('Run Pester Test'){
+            steps {               
+                powershell '''                                       
+                    $params = @{
+                        TestName = $env:TESTNAME       
+                    }
+ 
+                    if($env:SERVERNAME -eq 'null')
+                    {
+                        $params.Add('PipelineOutput',$env:PIPELINEOUTPUT)   
+                    }
+                    else
+                    {
+                        $params.Add('ServerName',$env:SERVERNAME)
+                    }
+ 
+                    $obj = & .\\scripts\\Start-Test.ps1 @params
+ 
+                    if($obj.FailedCount -eq $null)
+                    {
+                        # write-output 'false'
+                        exit -1
+                    }
+                    else
+                    {
+                        # write-output 'true'
+                    }                                                                                                   
+                '''                       
+            }
+        }                              
+        /*       
+        stage('Email Report'){
+            steps {
+                powershell '''
+                    Invoke-Expression -Command .\\scripts\\Email-Report.ps1
+                '''
+            }
+        }
+        */               
+    }
+}
+
